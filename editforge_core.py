@@ -224,21 +224,41 @@ class FFmpegRunner:
 
 
 class AutoEditor:
-    """Wrap auto-editor for silence removal."""
+    """Wrap auto-editor for silence detection via Premiere XML EDL."""
+
+    @classmethod
+    def _binary(cls) -> Path:
+        candidates: List[Path] = []
+        # 1. auto-editor pip package downloads a platform binary under its package dir
+        try:
+            import auto_editor
+            candidates.append(Path(auto_editor.__file__).parent / "bin" / "auto-editor")
+        except Exception:
+            pass
+        # 2. Known venv layout
+        venv = Path(DEFAULT_VENV)
+        candidates.append(venv / "lib" / "python3.11" / "site-packages" / "auto_editor" / "bin" / "auto-editor")
+        candidates.append(venv / "lib" / "python3.12" / "site-packages" / "auto_editor" / "bin" / "auto-editor")
+        candidates.append(venv / "lib" / "python3.13" / "site-packages" / "auto_editor" / "bin" / "auto-editor")
+        for c in candidates:
+            if c.exists():
+                return c
+        # 3. Fallback to PATH
+        p = shutil.which("auto-editor")
+        if p:
+            return Path(p)
+        raise FileNotFoundError("auto-editor binary not found")
 
     @classmethod
     def silence_segments(cls, input_path: Path, work_dir: Path) -> List[Segment]:
         """Return segments to KEEP after removing silence."""
-        edl_path = work_dir / "autoeditor.json"
-        venv_python = Path(DEFAULT_VENV) / "bin/python"
-        if not venv_python.exists():
-            raise FileNotFoundError(f"editforge venv python not found: {venv_python}")
+        edl_path = work_dir / "autoeditor_premiere.xml"
+        bin_path = cls._binary()
         cmd = [
-            str(venv_python), "-m", "auto_editor",
+            str(bin_path),
             str(input_path),
-            "--export", "as-json",
+            "--export", "premiere",
             "--output", str(edl_path),
-            "--my-ffmpeg", str(FFMPEG),
         ]
         logger.info("auto-editor cmd: %s", " ".join(cmd))
         r = subprocess.run(cmd, capture_output=True, text=True)
@@ -249,20 +269,26 @@ class AutoEditor:
 
     @classmethod
     def _load_keep_segments(cls, edl_path: Path, input_path: Path) -> List[Segment]:
-        if not edl_path.exists():
-            logger.warning("auto-editor JSON missing, falling back to single keep segment")
-            return [Segment(0.0, FFmpegRunner.probe_duration(input_path))]
-        data = json.loads(edl_path.read_text())
-        # as-json export contains a list of sources and chunks. Chunks are [src_idx, start_frame, end_frame].
-        # We want keep intervals in seconds.
         duration = FFmpegRunner.probe_duration(input_path)
-        fps = data.get("src", [{}])[0].get("fps", 30.0)
-        chunks = data.get("chunks", [])
+        if not edl_path.exists():
+            logger.warning("auto-editor EDL missing, falling back to single keep segment")
+            return [Segment(0.0, duration)]
+        import xml.etree.ElementTree as ET
+        tree = ET.parse(edl_path)
+        root_xml = tree.getroot()
+        # Find first video track
+        video_track = root_xml.find(".//sequence/media/video/track") or root_xml.find(".//{xmeml}sequence/{xmeml}media/{xmeml}video/{xmeml}track", {"xmeml": "xmeml"})
+        if video_track is None:
+            logger.warning("No video track in EDL, falling back to single keep segment")
+            return [Segment(0.0, duration)]
+        timebase_el = root_xml.find(".//sequence/rate/timebase") or root_xml.find(".//{xmeml}sequence/{xmeml}rate/{xmeml}timebase", {"xmeml": "xmeml"})
+        fps = float(timebase_el.text) if timebase_el is not None and timebase_el.text else 30.0
         keeps: List[Segment] = []
-        for chunk in chunks:
-            if len(chunk) >= 3:
-                _, start_f, end_f = chunk[:3]
-                keeps.append(Segment(start_f / fps, end_f / fps))
+        for clip in video_track.findall("clipitem"):
+            inn = clip.find("in")
+            out = clip.find("out")
+            if inn is not None and inn.text and out is not None and out.text:
+                keeps.append(Segment(int(inn.text) / fps, int(out.text) / fps))
         if not keeps:
             keeps = [Segment(0.0, duration)]
         return keeps
