@@ -93,6 +93,9 @@ class InstructionParser:
         "speedup": {
             "aliases": [r"speed\s*up", r"speedup", r"fast(?:er)?\b", r"\bx(\d+(?:\.\d+)?)\b"],
         },
+        "scene-map": {
+            "aliases": [r"scene\s+map", r"scenes?", r"detect\s+scenes", r"scene\s+detect"],
+        },
     }
 
     FILLER_WORDS = ["um", "uh", "like", "you know", "actually", "basically", "so", "literally", "right"]
@@ -129,6 +132,10 @@ class InstructionParser:
         speed_params = cls._extract_speed(text_lower)
         if speed_params:
             instructions.append(Instruction("speedup", speed_params))
+
+        # Scene map
+        if cls._matches("scene-map", text_lower):
+            instructions.append(Instruction("scene-map"))
 
         return instructions
 
@@ -175,7 +182,7 @@ class InstructionParser:
 class PlanGenerator:
     """Order intents into a deterministic execution plan."""
 
-    ORDER = ["trim-range", "cut-silence", "cut-filler-words", "make-vertical-reframe", "captions-on", "captions-off", "speedup"]
+    ORDER = ["trim-range", "cut-silence", "cut-filler-words", "make-vertical-reframe", "captions-on", "captions-off", "speedup", "scene-map"]
 
     @classmethod
     def generate(cls, instructions: List[Instruction], input_path: Path, output_path: Path, work_dir: Path) -> EditPlan:
@@ -605,6 +612,8 @@ class FFmpegExecutor:
             pass
         elif instr.intent == "speedup":
             self._speedup(instr.params.get("factor", 2.0))
+        elif instr.intent == "scene-map":
+            self._scene_map()
         else:
             logger.warning("Unknown intent: %s", instr.intent)
         self.plan.timings[instr.intent] = time.time() - t0
@@ -672,6 +681,13 @@ class FFmpegExecutor:
         self._run_ffmpeg(["-i", str(self.current), "-vf", vf, "-c:v", "libx264",
                           "-preset", "fast", "-crf", "23", "-c:a", "copy", "-y", str(out)])
         self.current = out
+
+    def _scene_map(self):
+        scenes = SceneDetector.detect(self.current, self.plan.work_dir)
+        self.plan.scene_list = scenes
+        scenes_json = self.plan.work_dir / "scenes.json"
+        scenes_json.write_text(json.dumps([{"start": s.start, "end": s.end} for s in scenes], indent=2))
+        logger.info("scene map: %d scenes written to %s", len(scenes), scenes_json)
 
     def _speedup(self, factor: float):
         out = self._next_workfile("speedup")
