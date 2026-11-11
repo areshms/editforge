@@ -311,6 +311,14 @@ class FasterWhisper:
         # faster-whisper auto-downloads on first use
         pass
 
+    @staticmethod
+    def _speed_filter(factor: float) -> float:
+        """Validate speed factor and return valid ffmpeg atempo value."""
+        factor = float(factor)
+        if not 0.5 <= factor <= 2.0:
+            raise ValueError(f"Speed factor must be between 0.5 and 2.0, got {factor}")
+        return factor
+
     @classmethod
     def _run_transcribe(cls, input_path: Path, srt_path: Path, work_dir: Path) -> List[dict]:
         venv_python = Path(DEFAULT_VENV) / "bin/python"
