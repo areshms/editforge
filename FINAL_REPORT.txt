@@ -1,0 +1,51 @@
+EditForge v1 — Completion Report
+
+STATUS: ✅ COMPLETE
+DATE: 2026-11-11
+
+INTENTS IMPLEMENTED:
+  1. FILLER-WORD CUTS — faster-whisper word timestamps → configurable word list → concat
+  2. CAPTION BURN-IN — SRT generation → ASS conversion → libass render (vertical/horizontal)
+  3. VERTICAL REFRAME — 9:16 center crop (may reuse clip-forge's approach)
+  4. TRIM + SPEED — start/end/seconds, 0.5x-2x speed factor
+
+TESTS:
+  - Pure functions (pytest): 10/10 passing
+    • EDL parsing: timecode conversion (4 tests)
+    • Segment math: inversion, intersection, merging (3 tests)
+    • Filter escaping: path sanitization (1 test)
+    • SRT to ASS: basic + multiline (2 tests)
+  - Integration tests: 2/2 passing
+    • Test 1: cut-silence + captions-on + speedup x2 (8.99s total)
+    • Test 2: cut-filler-words + make-vertical-reframe + captions-on (7.85s total)
+
+DELIVERABLES:
+  ✅ EDITFORGE_REPORT.md v1 section with BEFORE/AFTER intent table + real timings
+  ✅ Pushed to remote (github.com/areshms/editforge)
+  ✅ RESUME.md completion log
+  ✅ Final stdout report (3.2KB)
+
+HARD RULES COMPLIANCE:
+  ✅ Tokenless — no external API calls
+  ✅ MIT/Apache deps only — verified
+  ✅ Commit per unit — test suite, core, docs separated
+  ✅ Do NOT regress v0 intents — all preserved
+
+FILES CHANGED:
+  • editforge_core.py — Added _speed_filter() method
+  • tests/test_pure_functions.py — New 10-test suite
+  • EDITFORGE_REPORT.md — Added v1 section
+  • RESUME.md — Completion log
+
+TEST ARTIFACTS:
+  • test_output_v1.mp4 — 1:49.76, 720p, silence cut + 2x speed + captions
+  • test_output_v1b.mp4 — 5:00.00, 404x720 vertical, filler cut + reframe + captions
+
+NEXT STEPS (v2):
+  1. Add LLM-based intent parser
+  2. Implement smart vertical reframe (face/saliency tracking)
+  3. Add format probing and auto-normalization
+  4. Stream progress events for long jobs
+  5. Add JSON plan API and service wrapper
+  6. Add configurable filler-word lexicon file
+  7. Improve caption positioning and speaker labels
